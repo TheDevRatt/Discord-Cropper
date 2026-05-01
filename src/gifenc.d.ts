@@ -47,8 +47,8 @@ declare module 'gifenc' {
       options?: FrameOptions,
     ): void
     finish(): void
-    bytes(): Uint8Array
-    bytesView(): Uint8Array
+    bytes(): Uint8Array<ArrayBuffer>
+    bytesView(): Uint8Array<ArrayBuffer>
     reset(): void
     readonly buffer: ArrayBuffer
   }
