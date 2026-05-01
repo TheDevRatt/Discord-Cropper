@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/discord-cropper/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Discord Cropper</title>
+    <script type="module" crossorigin src="/discord-cropper/assets/index-CZC2RSTd.js"></script>
+    <link rel="stylesheet" crossorigin href="/discord-cropper/assets/index-uOSurfAU.css">
+  </head>
+  <body>
+    <main>
+      <div class="page-heading">
+        <img class="logo" src="/discord-cropper/favicon.svg" alt="" aria-hidden="true" />
+        <h1>Discord Profile Cropper</h1>
+      </div>
+      <p>
+        Finally, an all-in-one place where you can crop your profiles to your
+        hearts and actually have it come out right!
+      </p>
+      <section class="profile-card">
+        <div class="profile">
+          <div class="profile-header">
+            <svg class="banner-mask" viewBox="0 0 1100 440">
+              <mask id="banner-cutout">
+                <rect fill="white" x="0" y="0" width="100%" height="100%" />
+                <circle fill="black" cx="80" cy="440" r="67" />
+              </mask>
+              <foreignObject
+                x="0"
+                y="0"
+                width="100%"
+                height="100%"
+                mask="url(#banner-cutout)"
+              >
+                <div class="profile-banner">
+                  <img
+                    crossorigin="anonymous"
+                    src="https://placehold.co/1100x440"
+                  />
+                </div>
+              </foreignObject>
+            </svg>
+            <div class="profile-avatar">
+              <svg class="avatar-mask" viewBox="0 0 512 512">
+                <mask id="avatar-cutout">
+                  <rect fill="white" x="0" y="0" width="100%" height="100%" />
+                  <circle
+                    style="opacity: 1"
+                    fill="black"
+                    r="85"
+                    cx="427"
+                    cy="427"
+                  />
+                </mask>
+                <foreignObject
+                  x="0"
+                  y="0"
+                  width="100%"
+                  height="100%"
+                  mask="url(#avatar-cutout)"
+                >
+                  <div class="profile-picture">
+                    <img
+                      crossorigin="anonymous"
+                      src="https://placehold.co/512x512"
+                    />
+                  </div>
+                </foreignObject>
+                <circle
+                  class="profile-status"
+                  cx="427"
+                  cy="427"
+                  r="60"
+                  fill="#23a55a"
+                />
+              </svg>
+            </div>
+          </div>
+
+          <div class="profile-body">
+            <div class="upload-actions">
+              <label class="upload-button">
+                <input
+                  type="file"
+                  accept="image/*"
+                  data-upload="avatar"
+                  hidden
+                />
+                <span>Upload Profile Picture</span>
+              </label>
+              <label class="upload-button">
+                <input
+                  type="file"
+                  accept="image/*"
+                  data-upload="banner"
+                  hidden
+                />
+                <span>Upload Banner</span>
+              </label>
+              <button
+                type="button"
+                class="upload-button download-button"
+                data-action="download"
+                disabled
+              >
+                <span>Download ZIP</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+      <span
+        >Just upload, click-drag to pan over the image and scroll-wheel to zoom
+        in and out.</span
+      >
+    </main>
+
+  </body>
+</html>
