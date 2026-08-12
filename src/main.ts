@@ -17,6 +17,7 @@ interface Target {
   container: HTMLElement;
   svg: SVGSVGElement;
   input: HTMLInputElement;
+  zoomInput: HTMLInputElement | null;
   blobUrl: string | null;
   originalFile: File | null;
 }
@@ -49,6 +50,9 @@ function setup(uploadKey: string, containerSelector: string): Target | null {
   const container = document.querySelector<HTMLElement>(containerSelector);
   const img = container?.querySelector("img") ?? null;
   const svg = container?.closest("svg") ?? null;
+  const zoomInput = document.querySelector<HTMLInputElement>(
+    `input[data-zoom="${uploadKey}"]`,
+  );
   if (!input || !container || !img || !svg) return null;
 
   const target: Target = {
@@ -58,6 +62,7 @@ function setup(uploadKey: string, containerSelector: string): Target | null {
     container,
     svg,
     input,
+    zoomInput,
     blobUrl: null,
     originalFile: null,
   };
@@ -75,12 +80,16 @@ function setup(uploadKey: string, containerSelector: string): Target | null {
     img.crossOrigin = "";
     img.onload = () => {
       initialize(target);
+      if (target.zoomInput) target.zoomInput.disabled = false;
       updateDownloadEnabled();
     };
     img.src = url;
   });
 
   attachInteraction(target);
+  zoomInput?.addEventListener("input", () => {
+    setZoomMultiplier(target, Number(zoomInput.value));
+  });
   return target;
 }
 
@@ -91,61 +100,144 @@ function updateDownloadEnabled(): void {
 }
 
 function attachInteraction(t: Target): void {
-  let activePointer: number | null = null;
-  let lastX = 0;
-  let lastY = 0;
+  const pointers = new Map<number, { x: number; y: number }>();
+  let pinch:
+    | {
+        distance: number;
+        scale: number;
+        imageX: number;
+        imageY: number;
+      }
+    | null = null;
 
-  t.container.addEventListener("pointerdown", (e) => {
-    activePointer = e.pointerId;
-    lastX = e.clientX;
-    lastY = e.clientY;
-    t.container.setPointerCapture(e.pointerId);
-    e.preventDefault();
+  const pointerPair = () => Array.from(pointers.values()).slice(0, 2);
+
+  const beginPinch = () => {
+    const [first, second] = pointerPair();
+    if (!first || !second) return;
+    const distance = Math.hypot(second.x - first.x, second.y - first.y);
+    if (!distance) return;
+    const focus = screenPointToContainer(
+      t,
+      (first.x + second.x) / 2,
+      (first.y + second.y) / 2,
+    );
+    pinch = {
+      distance,
+      scale: t.state.scale,
+      imageX: (focus.x - t.state.x) / t.state.scale,
+      imageY: (focus.y - t.state.y) / t.state.scale,
+    };
+  };
+
+  t.container.addEventListener("pointerdown", (event) => {
+    if (pointers.size >= 2 && !pointers.has(event.pointerId)) return;
+    pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    t.container.setPointerCapture(event.pointerId);
+    if (pointers.size === 2) beginPinch();
+    event.preventDefault();
   });
 
-  t.container.addEventListener("pointermove", (e) => {
-    if (e.pointerId !== activePointer) return;
+  t.container.addEventListener("pointermove", (event) => {
+    const previous = pointers.get(event.pointerId);
+    if (!previous) return;
+    pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+
+    if (pointers.size === 2) {
+      if (!pinch) beginPinch();
+      const [first, second] = pointerPair();
+      if (!pinch || !first || !second) return;
+      const distance = Math.hypot(second.x - first.x, second.y - first.y);
+      const focus = screenPointToContainer(
+        t,
+        (first.x + second.x) / 2,
+        (first.y + second.y) / 2,
+      );
+      const newScale = clampScale(
+        t,
+        pinch.scale * (distance / pinch.distance),
+      );
+      t.state.scale = newScale;
+      t.state.x = focus.x - pinch.imageX * newScale;
+      t.state.y = focus.y - pinch.imageY * newScale;
+      clampPosition(t);
+      updateZoomInput(t);
+      apply(t);
+      event.preventDefault();
+      return;
+    }
+
     const factor = svgUnitsPerScreenPx(t.svg);
-    t.state.x += (e.clientX - lastX) * factor;
-    t.state.y += (e.clientY - lastY) * factor;
-    lastX = e.clientX;
-    lastY = e.clientY;
+    t.state.x += (event.clientX - previous.x) * factor;
+    t.state.y += (event.clientY - previous.y) * factor;
     clampPosition(t);
     apply(t);
+    event.preventDefault();
   });
 
-  const endDrag = (e: PointerEvent) => {
-    if (e.pointerId !== activePointer) return;
-    activePointer = null;
-    if (t.container.hasPointerCapture(e.pointerId))
-      t.container.releasePointerCapture(e.pointerId);
+  const endPointer = (event: PointerEvent) => {
+    if (!pointers.delete(event.pointerId)) return;
+    pinch = null;
+    if (t.container.hasPointerCapture(event.pointerId))
+      t.container.releasePointerCapture(event.pointerId);
   };
-  t.container.addEventListener("pointerup", endDrag);
-  t.container.addEventListener("pointercancel", endDrag);
+  t.container.addEventListener("pointerup", endPointer);
+  t.container.addEventListener("pointercancel", endPointer);
 
   t.container.addEventListener(
     "wheel",
-    (e) => {
-      e.preventDefault();
-      const oldScale = t.state.scale;
-      const ratio = 1 + -e.deltaY * ZOOM_SPEED;
-      const min = t.state.baseScale * MIN_SCALE_MULT;
-      const max = t.state.baseScale * MAX_SCALE_MULT;
-      const newScale = Math.min(max, Math.max(min, oldScale * ratio));
-      if (newScale === oldScale) return;
-
-      const cw = t.container.clientWidth;
-      const ch = t.container.clientHeight;
-      const px = (cw / 2 - t.state.x) / oldScale;
-      const py = (ch / 2 - t.state.y) / oldScale;
-      t.state.scale = newScale;
-      t.state.x = cw / 2 - px * newScale;
-      t.state.y = ch / 2 - py * newScale;
-      clampPosition(t);
-      apply(t);
+    (event) => {
+      event.preventDefault();
+      const ratio = 1 + -event.deltaY * ZOOM_SPEED;
+      setScaleAroundCenter(t, t.state.scale * ratio);
     },
     { passive: false },
   );
+}
+
+function screenPointToContainer(
+  t: Target,
+  screenX: number,
+  screenY: number,
+): { x: number; y: number } {
+  const rect = t.container.getBoundingClientRect();
+  const factor = svgUnitsPerScreenPx(t.svg);
+  return {
+    x: (screenX - rect.left) * factor,
+    y: (screenY - rect.top) * factor,
+  };
+}
+
+function clampScale(t: Target, scale: number): number {
+  const min = t.state.baseScale * MIN_SCALE_MULT;
+  const max = t.state.baseScale * MAX_SCALE_MULT;
+  return Math.min(max, Math.max(min, scale));
+}
+
+function setScaleAroundCenter(t: Target, requestedScale: number): void {
+  const oldScale = t.state.scale;
+  const newScale = clampScale(t, requestedScale);
+  if (newScale === oldScale) return;
+  const focusX = t.container.clientWidth / 2;
+  const focusY = t.container.clientHeight / 2;
+  const imageX = (focusX - t.state.x) / oldScale;
+  const imageY = (focusY - t.state.y) / oldScale;
+  t.state.scale = newScale;
+  t.state.x = focusX - imageX * newScale;
+  t.state.y = focusY - imageY * newScale;
+  clampPosition(t);
+  updateZoomInput(t);
+  apply(t);
+}
+
+function setZoomMultiplier(t: Target, multiplier: number): void {
+  if (!Number.isFinite(multiplier)) return;
+  setScaleAroundCenter(t, t.state.baseScale * multiplier);
+}
+
+function updateZoomInput(t: Target): void {
+  if (!t.zoomInput || !t.state.baseScale) return;
+  t.zoomInput.value = String(t.state.scale / t.state.baseScale);
 }
 
 function svgUnitsPerScreenPx(svg: SVGSVGElement): number {
@@ -165,6 +257,7 @@ function initialize(t: Target): void {
   t.state.scale = baseScale;
   t.state.x = (cw - iw * baseScale) / 2;
   t.state.y = (ch - ih * baseScale) / 2;
+  updateZoomInput(t);
   apply(t);
 }
 

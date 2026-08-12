@@ -1,15 +1,18 @@
 :root {
   --text: #6b6375;
   --text-h: #08060d;
-  --bg: #000000;
+  --bg: #f7f7fb;
   --border: #e5e4e7;
   --radius-lg: 16px;
   --shadow-medium: 0 4px 8px 0 hsl(none 0% 0%/0.16);
   --code-bg: #f4f3ec;
-  --accent: #aa3bff;
-  --accent-bg: rgba(170, 59, 255, 0.1);
-  --accent-border: rgba(170, 59, 255, 0.5);
+  --accent: #b85aff;
+  --accent-bg: rgba(184, 90, 255, 0.1);
+  --accent-border: rgba(184, 90, 255, 0.5);
   --social-bg: rgba(244, 243, 236, 0.5);
+  --profile-bg: #111214;
+  --profile-text: #f2f3f5;
+  --profile-muted: #b5bac1;
   --shadow:
     rgba(0, 0, 0, 0.1) 0 10px 15px -3px, rgba(0, 0, 0, 0.05) 0 4px 6px -2px;
 
@@ -68,6 +71,12 @@ body {
   justify-content: center;
 }
 
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
 main {
   width: 100%;
   max-width: 1200px;
@@ -113,7 +122,8 @@ main h1 {
 }
 
 .profile {
-  background: var(--bg);
+  background: var(--profile-bg);
+  color: var(--profile-muted);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow);
@@ -136,6 +146,14 @@ main h1 {
   flex-wrap: wrap;
   justify-content: center;
   gap: 0.75rem;
+}
+
+.mobile-crop-controls {
+  display: none;
+}
+
+.crop-help {
+  line-height: 1.5;
 }
 
 .upload-button {
@@ -164,7 +182,7 @@ main h1 {
 .upload-button:hover {
   background: var(--accent);
   border-color: var(--accent);
-  color: #fff;
+  color: var(--profile-bg);
 }
 
 .upload-button:active {
@@ -177,21 +195,21 @@ main h1 {
 }
 
 .download-button {
-  background: #23a55a;
-  border-color: #23a55a;
+  background: #1b8045;
+  border-color: #1b8045;
   color: #fff;
 }
 
 .download-button:hover {
-  background: #1f9551;
-  border-color: #1f9551;
+  background: #197a41;
+  border-color: #197a41;
   color: #fff;
 }
 
 .download-button:disabled {
   background: transparent;
   border-color: var(--border);
-  color: var(--text);
+  color: var(--profile-muted);
   opacity: 0.55;
   cursor: not-allowed;
   pointer-events: none;
@@ -203,7 +221,7 @@ main h1 {
   pointer-events: none;
 }
 
-@media (max-width: 768px) {
+@media (max-width: 768px), (hover: none) and (pointer: coarse) {
   :root {
     --profile-card-width: min(1100px, 100%);
   }
@@ -211,11 +229,68 @@ main h1 {
   body {
     font-size: 16px;
   }
+
+  main {
+    padding-right: max(0.75rem, env(safe-area-inset-right));
+    padding-left: max(0.75rem, env(safe-area-inset-left));
+  }
+
+  .profile {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .profile-body {
+    padding-right: 0.875rem;
+    padding-left: 0.875rem;
+  }
+
+  .upload-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+    width: 100%;
+  }
+
+  .upload-button {
+    min-height: 48px;
+    width: 100%;
+  }
+
+  .mobile-crop-controls {
+    display: grid;
+    gap: 0.875rem;
+    margin-top: 1rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--border);
+  }
+
+  .zoom-control {
+    display: grid;
+    grid-template-columns: minmax(8.5rem, auto) minmax(0, 1fr);
+    align-items: center;
+    gap: 0.75rem;
+    color: var(--profile-text);
+    font-size: 0.875rem;
+    font-weight: 600;
+    text-align: left;
+  }
+
+  .zoom-control input {
+    width: 100%;
+    min-height: 44px;
+    margin: 0;
+    accent-color: var(--accent);
+  }
+
+  .zoom-control input:disabled {
+    opacity: 0.45;
+  }
 }
 
 @media (max-width: 480px) {
   main {
-    padding: 1rem 0.5rem;
+    padding-top: max(1rem, env(safe-area-inset-top));
+    padding-bottom: max(1rem, env(safe-area-inset-bottom));
   }
 
   main h1 {
@@ -224,6 +299,11 @@ main h1 {
 
   .profile-card {
     margin-top: 1rem;
+  }
+
+  .zoom-control {
+    grid-template-columns: 1fr;
+    gap: 0.25rem;
   }
 }
 

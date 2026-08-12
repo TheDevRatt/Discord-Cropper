@@ -1,0 +1,321 @@
+import { expect, test, type Page } from "@playwright/test";
+import { readFile } from "node:fs/promises";
+import JSZip from "jszip";
+
+const tinyPng = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAFElEQVR42mP8z8AARAwMjDAGsgAAH0QCBY0SMWQAAAAASUVORK5CYII=",
+  "base64",
+);
+
+async function upload(page: Page, target: string) {
+  await page.locator(`input[data-upload="${target}"]`).setInputFiles({
+    name: `${target}.png`,
+    mimeType: "image/png",
+    buffer: tinyPng,
+  });
+  await expect(page.locator(`input[data-upload="${target}"]`)).toHaveJSProperty(
+    "files.length",
+    1,
+  );
+}
+
+test.beforeEach(async ({ page }) => {
+  await page.goto("./");
+});
+
+test("text remains readable in light-mode browsers", async ({ page }) => {
+  const ratios = await page.evaluate(() => {
+    const parse = (value: string) =>
+      value
+        .match(/[\d.]+/g)!
+        .slice(0, 3)
+        .map(Number);
+    const luminance = (rgb: number[]) => {
+      const channels = rgb.map((value) => {
+        const channel = value / 255;
+        return channel <= 0.04045
+          ? channel / 12.92
+          : ((channel + 0.055) / 1.055) ** 2.4;
+      });
+      return channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722;
+    };
+    const contrast = (foreground: Element, background: Element) => {
+      const light = luminance(parse(getComputedStyle(foreground).color));
+      const dark = luminance(parse(getComputedStyle(background).backgroundColor));
+      return (Math.max(light, dark) + 0.05) / (Math.min(light, dark) + 0.05);
+    };
+    return {
+      heading: contrast(document.querySelector("h1")!, document.body),
+      zoomLabel: contrast(
+        document.querySelector(".zoom-control span")!,
+        document.querySelector(".profile")!,
+      ),
+    };
+  });
+  expect(ratios.heading).toBeGreaterThanOrEqual(4.5);
+  expect(ratios.zoomLabel).toBeGreaterThanOrEqual(4.5);
+});
+
+test("action labels keep accessible contrast", async ({ page }, testInfo) => {
+  test.skip(!testInfo.project.name.startsWith("desktop"));
+
+  const contrast = (selector: string) =>
+    page.locator(selector).first().evaluate((element) => {
+      const parse = (value: string) => {
+        const channels = value.match(/[\d.]+/g)!.map(Number);
+        return [channels[0], channels[1], channels[2], channels[3] ?? 1];
+      };
+      const luminance = (rgb: number[]) => {
+        const channels = rgb.map((value) => {
+          const channel = value / 255;
+          return channel <= 0.04045
+            ? channel / 12.92
+            : ((channel + 0.055) / 1.055) ** 2.4;
+        });
+        return channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722;
+      };
+      const foreground = parse(getComputedStyle(element).color);
+      const background = parse(getComputedStyle(element).backgroundColor);
+      const profile = parse(
+        getComputedStyle(element.closest(".profile")!).backgroundColor,
+      );
+      const composited = background.slice(0, 3).map(
+        (channel, index) =>
+          channel * background[3] + profile[index] * (1 - background[3]),
+      );
+      const foregroundLuminance = luminance(foreground);
+      const backgroundLuminance = luminance(composited);
+      return (
+        (Math.max(foregroundLuminance, backgroundLuminance) + 0.05) /
+        (Math.min(foregroundLuminance, backgroundLuminance) + 0.05)
+      );
+    });
+
+  for (const colorScheme of ["light", "dark"] as const) {
+    await page.mouse.move(0, 0);
+    await page.emulateMedia({ colorScheme });
+    await page.waitForTimeout(200);
+    await upload(page, "avatar");
+
+    const uploadButton = '.upload-button:not(.download-button)';
+    expect(await contrast(uploadButton)).toBeGreaterThanOrEqual(4.5);
+    expect(await contrast(".download-button")).toBeGreaterThanOrEqual(4.5);
+
+    await page.locator(uploadButton).first().hover();
+    await page.waitForTimeout(200);
+    expect(await contrast(uploadButton)).toBeGreaterThanOrEqual(4.5);
+  }
+});
+
+test("the page never overflows the viewport horizontally", async ({ page }) => {
+  const dimensions = await page.evaluate(() => ({
+    viewport: document.documentElement.clientWidth,
+    content: document.documentElement.scrollWidth,
+  }));
+  expect(dimensions.content).toBeLessThanOrEqual(dimensions.viewport);
+});
+
+test("mobile actions are stacked, full width, and touch sized", async (
+  { page },
+  testInfo,
+) => {
+  test.skip(!testInfo.project.name.startsWith("mobile"));
+
+  const actionBox = await page.locator(".upload-actions").boundingBox();
+  const buttons = await page.locator(".upload-button").all();
+  expect(actionBox).not.toBeNull();
+
+  for (const button of buttons) {
+    const box = await button.boundingBox();
+    expect(box).not.toBeNull();
+    expect(box!.width).toBeGreaterThanOrEqual(actionBox!.width - 2);
+    expect(box!.height).toBeGreaterThanOrEqual(48);
+  }
+
+  await expect(page.locator(".crop-help")).toContainText(/pinch/i);
+});
+
+test("mobile zoom controls adjust each uploaded crop", async (
+  { page },
+  testInfo,
+) => {
+  test.skip(!testInfo.project.name.startsWith("mobile"));
+
+  for (const target of ["avatar", "banner"]) {
+    const control = page.locator(
+      `input[type="range"][data-zoom="${target}"]`,
+    );
+    await expect(control).toBeVisible();
+    await expect(control).toBeDisabled();
+
+    await upload(page, target);
+    await expect(control).toBeEnabled();
+
+    const image = page.locator(
+      target === "avatar" ? ".profile-picture img" : ".profile-banner img",
+    );
+    const before = await image.evaluate(
+      (element) => new DOMMatrix(getComputedStyle(element).transform).a,
+    );
+    await control.fill("2");
+    const after = await image.evaluate(
+      (element) => new DOMMatrix(getComputedStyle(element).transform).a,
+    );
+    expect(after).toBeGreaterThan(before * 1.9);
+  }
+});
+
+test("one-finger touch drag repositions a zoomed crop", async (
+  { page },
+  testInfo,
+) => {
+  test.skip(!testInfo.project.name.startsWith("mobile"));
+
+  await upload(page, "avatar");
+  await page.locator('input[data-zoom="avatar"]').fill("2");
+  const crop = page.locator(".profile-picture");
+  await crop.scrollIntoViewIfNeeded();
+  const image = crop.locator("img");
+  const box = await crop.boundingBox();
+  expect(box).not.toBeNull();
+  const before = await image.evaluate(
+    (element) => new DOMMatrix(getComputedStyle(element).transform),
+  );
+
+  const x = box!.x + box!.width / 2;
+  const y = box!.y + box!.height / 2;
+  const session = await page.context().newCDPSession(page);
+  await session.send("Input.dispatchTouchEvent", {
+    type: "touchStart",
+    touchPoints: [{ x, y }],
+  });
+  await session.send("Input.dispatchTouchEvent", {
+    type: "touchMove",
+    touchPoints: [{ x: x + 40, y: y + 20 }],
+  });
+  await session.send("Input.dispatchTouchEvent", {
+    type: "touchEnd",
+    touchPoints: [],
+  });
+
+  const after = await image.evaluate(
+    (element) => new DOMMatrix(getComputedStyle(element).transform),
+  );
+  expect(after.e).toBeGreaterThan(before.e + 30);
+  expect(after.f).toBeGreaterThan(before.f + 10);
+});
+
+test("desktop wheel zoom and mouse drag remain available", async (
+  { page },
+  testInfo,
+) => {
+  test.skip(!testInfo.project.name.startsWith("desktop"));
+
+  await upload(page, "avatar");
+  const crop = page.locator(".profile-picture");
+  const image = crop.locator("img");
+  const box = await crop.boundingBox();
+  expect(box).not.toBeNull();
+
+  const initial = await image.evaluate(
+    (element) => new DOMMatrix(getComputedStyle(element).transform),
+  );
+  await crop.hover();
+  await page.mouse.wheel(0, -400);
+  const zoomed = await image.evaluate(
+    (element) => new DOMMatrix(getComputedStyle(element).transform),
+  );
+  expect(zoomed.a).toBeGreaterThan(initial.a * 1.5);
+  expect(
+    Number(await page.locator('input[data-zoom="avatar"]').inputValue()),
+  ).toBeGreaterThan(1.5);
+
+  const centerX = box!.x + box!.width / 2;
+  const centerY = box!.y + box!.height / 2;
+  await page.mouse.move(centerX, centerY);
+  await page.mouse.down();
+  await page.mouse.move(centerX + 40, centerY + 20);
+  await page.mouse.up();
+  const dragged = await image.evaluate(
+    (element) => new DOMMatrix(getComputedStyle(element).transform),
+  );
+  expect(dragged.e).toBeGreaterThan(zoomed.e + 30);
+  expect(dragged.f).toBeGreaterThan(zoomed.f + 10);
+});
+
+test("a two-finger gesture zooms the banner", async ({ page }, testInfo) => {
+  test.skip(!testInfo.project.name.startsWith("mobile"));
+
+  await upload(page, "banner");
+  const crop = page.locator(".profile-banner");
+  const image = crop.locator("img");
+  const box = await crop.boundingBox();
+  expect(box).not.toBeNull();
+
+  const before = await image.evaluate(
+    (element) => new DOMMatrix(getComputedStyle(element).transform).a,
+  );
+  const y = box!.y + box!.height / 2;
+  const session = await page.context().newCDPSession(page);
+  await session.send("Input.dispatchTouchEvent", {
+    type: "touchStart",
+    touchPoints: [
+      { x: box!.x + box!.width * 0.4, y },
+      { x: box!.x + box!.width * 0.6, y },
+    ],
+  });
+  await session.send("Input.dispatchTouchEvent", {
+    type: "touchMove",
+    touchPoints: [
+      { x: box!.x + box!.width * 0.3, y },
+      { x: box!.x + box!.width * 0.7, y },
+    ],
+  });
+  await session.send("Input.dispatchTouchEvent", {
+    type: "touchEnd",
+    touchPoints: [],
+  });
+
+  const after = await image.evaluate(
+    (element) => new DOMMatrix(getComputedStyle(element).transform).a,
+  );
+  expect(after).toBeGreaterThan(before * 1.5);
+});
+
+test("mobile downloads keep Discord's full output dimensions", async (
+  { page },
+  testInfo,
+) => {
+  test.skip(!testInfo.project.name.startsWith("mobile"));
+
+  await upload(page, "avatar");
+  await upload(page, "banner");
+  await expect(page.locator('input[data-zoom="avatar"]')).toBeEnabled();
+  await expect(page.locator('input[data-zoom="banner"]')).toBeEnabled();
+
+  const pendingDownload = page.waitForEvent("download");
+  await page.locator('[data-action="download"]').click();
+  const download = await pendingDownload;
+  const path = await download.path();
+  expect(path).not.toBeNull();
+
+  const zip = await JSZip.loadAsync(await readFile(path!));
+  const dimensions: Record<string, [number, number]> = {};
+  for (const name of ["avatar.png", "banner.png"]) {
+    const bytes = await zip.file(name)!.async("uint8array");
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    dimensions[name] = [view.getUint32(16), view.getUint32(20)];
+  }
+  expect(dimensions).toEqual({
+    "avatar.png": [512, 512],
+    "banner.png": [1100, 440],
+  });
+});
+
+test("mobile-only crop controls stay out of the desktop layout", async (
+  { page },
+  testInfo,
+) => {
+  test.skip(!testInfo.project.name.startsWith("desktop"));
+  await expect(page.locator(".mobile-crop-controls")).toBeHidden();
+});
