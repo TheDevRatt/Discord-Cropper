@@ -115,6 +115,39 @@ test("the page never overflows the viewport horizontally", async ({ page }) => {
   expect(dimensions.content).toBeLessThanOrEqual(dimensions.viewport);
 });
 
+test("mobile preview uses Safari-safe crop surfaces", async ({ page }, testInfo) => {
+  test.skip(!testInfo.project.name.startsWith("mobile"));
+
+  await expect(page.locator("foreignObject")).toHaveCount(0);
+
+  const banner = page.locator(".profile-banner");
+  const avatar = page.locator(".profile-avatar");
+  await expect(banner).toBeVisible();
+  await expect(avatar).toBeVisible();
+
+  const geometry = await page.evaluate(() => {
+    const bannerRect = document
+      .querySelector(".profile-banner")!
+      .getBoundingClientRect();
+    const avatarRect = document
+      .querySelector(".profile-avatar")!
+      .getBoundingClientRect();
+    return {
+      bannerRatio: bannerRect.width / bannerRect.height,
+      avatarRatio: avatarRect.width / avatarRect.height,
+      avatarWidth: avatarRect.width,
+      bannerInSvg: Boolean(document.querySelector(".profile-banner")!.closest("svg")),
+      avatarInSvg: Boolean(document.querySelector(".profile-picture")!.closest("svg")),
+    };
+  });
+
+  expect(geometry.bannerInSvg).toBe(false);
+  expect(geometry.avatarInSvg).toBe(false);
+  expect(geometry.bannerRatio).toBeCloseTo(1100 / 440, 2);
+  expect(geometry.avatarRatio).toBeCloseTo(1, 2);
+  expect(geometry.avatarWidth).toBeGreaterThanOrEqual(72);
+});
+
 test("mobile actions are stacked, full width, and touch sized", async (
   { page },
   testInfo,

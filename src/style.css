@@ -24,8 +24,8 @@
   --profile-gradient-secondary-color: ();
   --profile-gradient-overlay-color: #00000099;
 
-  --avatar-size: calc(100cqw * 128 / 1100);
-  --avatar-offset-x: calc(100cqw * 16 / 1100);
+  --avatar-size: clamp(72px, calc(100cqw * 128 / 1100), 128px);
+  --avatar-offset-x: clamp(12px, calc(100cqw * 16 / 1100), 16px);
 
   --profile-card-width: min(1100px, 90vw);
   --radius-round: 100%;
@@ -309,14 +309,14 @@ main h1 {
 
 .profile-header {
   position: relative;
+  width: 100%;
+  aspect-ratio: 1100 / 440;
   container-type: inline-size;
 }
 
-.banner-mask {
-  display: block;
-  width: 100%;
-  height: auto;
-  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+.profile-banner {
+  position: absolute;
+  inset: 0;
 }
 
 .profile-avatar {
@@ -325,26 +325,24 @@ main h1 {
   bottom: calc(var(--avatar-size) / -2);
   width: var(--avatar-size);
   height: var(--avatar-size);
+  padding: 4px;
+  border-radius: var(--radius-round);
+  background: var(--profile-bg);
+  z-index: 1;
 }
 
-.avatar-mask {
-  display: block;
-  width: 100%;
-  height: auto;
+.profile-picture {
+  position: relative;
+  border-radius: var(--radius-round);
 }
 
 .profile-banner,
 .profile-picture {
-  position: relative;
   overflow: hidden;
   width: 100%;
   height: 100%;
   cursor: grab;
   touch-action: none;
-}
-
-.profile-picture {
-  border-radius: var(--radius-round);
 }
 
 .profile-banner:active,
@@ -368,5 +366,13 @@ main h1 {
 }
 
 .profile-status {
+  position: absolute;
+  right: 1px;
+  bottom: 1px;
+  width: 24%;
+  aspect-ratio: 1;
+  border: 3px solid var(--profile-bg);
+  border-radius: var(--radius-round);
+  background: #23a55a;
   pointer-events: none;
 }
