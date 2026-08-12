@@ -221,20 +221,163 @@ test("pasting an image into a crop loads only that section", async ({ page }) =>
   );
 });
 
-test("non-image clipboard content leaves crops unchanged", async ({ page }) => {
+test("desktop page paste routes to the selected crop", async ({ page }, testInfo) => {
+  test.skip(!testInfo.project.name.startsWith("desktop"));
+
   const initialAvatar = await page.locator(".profile-picture img").getAttribute("src");
-  await page.locator(".profile-picture").evaluate((element) => {
+  const initialBanner = await page.locator(".profile-banner img").getAttribute("src");
+  await page.locator(".profile-picture").click();
+  await page.evaluate((base64) => {
+    const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0));
     const transfer = new DataTransfer();
-    transfer.setData("text/plain", "not an image");
-    element.dispatchEvent(
+    transfer.items.add(new File([bytes], "desktop-paste.png", { type: "image/png" }));
+    document.dispatchEvent(
       new ClipboardEvent("paste", {
         bubbles: true,
         cancelable: true,
         clipboardData: transfer,
       }),
     );
+  }, tinyPng.toString("base64"));
+
+  await expect(page.locator(".profile-picture img")).toHaveAttribute("src", /^blob:/);
+  await expect(page.locator(".profile-banner img")).toHaveAttribute(
+    "src",
+    initialBanner!,
+  );
+
+  await page.locator(".profile-banner").click();
+  await page.evaluate((base64) => {
+    const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0));
+    const transfer = new DataTransfer();
+    transfer.items.add(new File([bytes], "desktop-banner.png", { type: "image/png" }));
+    document.dispatchEvent(
+      new ClipboardEvent("paste", {
+        bubbles: true,
+        cancelable: true,
+        clipboardData: transfer,
+      }),
+    );
+  }, tinyPng.toString("base64"));
+
+  await expect(page.locator(".profile-banner img")).toHaveAttribute("src", /^blob:/);
+  await expect(page.locator(".profile-picture img")).toHaveAttribute("src", /^blob:/);
+  expect(await page.locator(".profile-picture img").getAttribute("src")).not.toBe(
+    initialAvatar,
+  );
+});
+
+test("desktop page ignores image paste until a crop is selected", async ({
+  page,
+}, testInfo) => {
+  test.skip(!testInfo.project.name.startsWith("desktop"));
+
+  const initialAvatar = await page.locator(".profile-picture img").getAttribute("src");
+  const initialBanner = await page.locator(".profile-banner img").getAttribute("src");
+  const prevented = await page.evaluate((base64) => {
+    const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0));
+    const transfer = new DataTransfer();
+    transfer.items.add(new File([bytes], "unselected.png", { type: "image/png" }));
+    const event = new ClipboardEvent("paste", {
+      bubbles: true,
+      cancelable: true,
+      clipboardData: transfer,
+    });
+    document.dispatchEvent(event);
+    return event.defaultPrevented;
+  }, tinyPng.toString("base64"));
+
+  expect(prevented).toBe(false);
+  await expect(page.locator(".profile-picture img")).toHaveAttribute(
+    "src",
+    initialAvatar!,
+  );
+  await expect(page.locator(".profile-banner img")).toHaveAttribute(
+    "src",
+    initialBanner!,
+  );
+  await expect(page.locator('[data-action="download"]')).toBeDisabled();
+  await expect(page.locator('input[data-zoom="avatar"]')).toBeDisabled();
+  await expect(page.locator('input[data-zoom="banner"]')).toBeDisabled();
+});
+
+test("desktop page accepts image clipboard items when files are absent", async ({
+  page,
+}, testInfo) => {
+  test.skip(!testInfo.project.name.startsWith("desktop"));
+
+  await page.locator(".profile-picture").click();
+  await page.evaluate((base64) => {
+    const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0));
+    const image = new File([bytes], "clipboard-item.png", { type: "image/png" });
+    const event = new Event("paste", { bubbles: true, cancelable: true });
+    Object.defineProperty(event, "clipboardData", {
+      value: {
+        files: [],
+        items: [
+          {
+            kind: "file",
+            type: "image/png",
+            getAsFile: () => image,
+          },
+        ],
+      },
+    });
+    document.dispatchEvent(event);
+  }, tinyPng.toString("base64"));
+
+  await expect(page.locator(".profile-picture img")).toHaveAttribute("src", /^blob:/);
+});
+
+test("desktop Ctrl+V pastes a clipboard image into the selected crop", async ({
+  context,
+  page,
+}, testInfo) => {
+  test.skip(!testInfo.project.name.startsWith("desktop"));
+
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  await page.evaluate(async () => {
+    const canvas = document.createElement("canvas");
+    canvas.width = 4;
+    canvas.height = 4;
+    const drawing = canvas.getContext("2d")!;
+    drawing.fillStyle = "#b85aff";
+    drawing.fillRect(0, 0, 4, 4);
+    const image = await new Promise<Blob>((resolve) =>
+      canvas.toBlob((blob) => resolve(blob!), "image/png"),
+    );
+    await navigator.clipboard.write([
+      new ClipboardItem({ "image/png": image }),
+    ]);
   });
 
+  const initialBanner = await page.locator(".profile-banner img").getAttribute("src");
+  await page.locator(".profile-picture").click();
+  await page.keyboard.press("Control+V");
+
+  await expect(page.locator(".profile-picture img")).toHaveAttribute("src", /^blob:/);
+  await expect(page.locator(".profile-banner img")).toHaveAttribute(
+    "src",
+    initialBanner!,
+  );
+});
+
+test("non-image clipboard content leaves crops unchanged", async ({ page }) => {
+  const initialAvatar = await page.locator(".profile-picture img").getAttribute("src");
+  await page.locator(".profile-picture").click();
+  const prevented = await page.evaluate(() => {
+    const transfer = new DataTransfer();
+    transfer.setData("text/plain", "not an image");
+    const event = new ClipboardEvent("paste", {
+      bubbles: true,
+      cancelable: true,
+      clipboardData: transfer,
+    });
+    document.dispatchEvent(event);
+    return event.defaultPrevented;
+  });
+
+  expect(prevented).toBe(false);
   await expect(page.locator(".profile-picture img")).toHaveAttribute(
     "src",
     initialAvatar!,
