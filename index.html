@@ -105,13 +105,39 @@
                 <span>Download ZIP</span>
               </button>
             </div>
+            <div class="mobile-crop-controls" aria-label="Touch crop controls">
+              <label class="zoom-control">
+                <span>Profile picture zoom</span>
+                <input
+                  type="range"
+                  min="1"
+                  max="5"
+                  step="0.01"
+                  value="1"
+                  data-zoom="avatar"
+                  disabled
+                />
+              </label>
+              <label class="zoom-control">
+                <span>Banner zoom</span>
+                <input
+                  type="range"
+                  min="1"
+                  max="5"
+                  step="0.01"
+                  value="1"
+                  data-zoom="banner"
+                  disabled
+                />
+              </label>
+            </div>
           </div>
         </div>
       </section>
-      <span
-        >Just upload, click-drag to pan over the image and scroll-wheel to zoom
-        in and out.</span
-      >
+      <p class="crop-help">
+        Upload an image, then drag to reposition it. Pinch or use the mobile
+        sliders to zoom on touchscreens, or use the mouse wheel on desktop.
+      </p>
     </main>
 
     <script type="module" src="/src/main.ts"></script>
