@@ -28,6 +28,7 @@ const MAX_SCALE_MULT = 5;
 const ZOOM_SPEED = 0.0015;
 
 const targets: Target[] = [];
+let selectedTarget: Target | null = null;
 const downloadBtn = document.querySelector<HTMLButtonElement>(
   'button[data-action="download"]',
 );
@@ -36,6 +37,23 @@ const avatar = setup("avatar", ".profile-picture", 512, 512);
 const banner = setup("banner", ".profile-banner", 1100, 440);
 if (avatar) targets.push(avatar);
 if (banner) targets.push(banner);
+
+document.addEventListener("paste", (event) => {
+  if (!selectedTarget) return;
+  const clipboard = event.clipboardData;
+  const file =
+    Array.from(clipboard?.files ?? []).find((candidate) =>
+      candidate.type.startsWith("image/"),
+    ) ??
+    Array.from(clipboard?.items ?? [])
+      .find(
+        (item) => item.kind === "file" && item.type.startsWith("image/"),
+      )
+      ?.getAsFile();
+  if (!file) return;
+  event.preventDefault();
+  loadFile(selectedTarget, file);
+});
 
 updateDownloadEnabled();
 
@@ -82,13 +100,8 @@ function setup(
     loadFile(target, file);
   });
 
-  container.addEventListener("paste", (event) => {
-    const file = Array.from(event.clipboardData?.files ?? []).find((candidate) =>
-      candidate.type.startsWith("image/"),
-    );
-    if (!file) return;
-    event.preventDefault();
-    loadFile(target, file);
+  container.addEventListener("focus", () => {
+    selectedTarget = target;
   });
 
   attachInteraction(target);
