@@ -15,7 +15,8 @@ interface Target {
   state: State;
   img: HTMLImageElement;
   container: HTMLElement;
-  svg: SVGSVGElement;
+  outputWidth: number;
+  outputHeight: number;
   input: HTMLInputElement;
   zoomInput: HTMLInputElement | null;
   blobUrl: string | null;
@@ -31,8 +32,8 @@ const downloadBtn = document.querySelector<HTMLButtonElement>(
   'button[data-action="download"]',
 );
 
-const avatar = setup("avatar", ".profile-picture");
-const banner = setup("banner", ".profile-banner");
+const avatar = setup("avatar", ".profile-picture", 512, 512);
+const banner = setup("banner", ".profile-banner", 1100, 440);
 if (avatar) targets.push(avatar);
 if (banner) targets.push(banner);
 
@@ -43,24 +44,29 @@ downloadBtn?.addEventListener("click", () => {
   download(downloadBtn);
 });
 
-function setup(uploadKey: string, containerSelector: string): Target | null {
+function setup(
+  uploadKey: string,
+  containerSelector: string,
+  outputWidth: number,
+  outputHeight: number,
+): Target | null {
   const input = document.querySelector<HTMLInputElement>(
     `input[data-upload="${uploadKey}"]`,
   );
   const container = document.querySelector<HTMLElement>(containerSelector);
   const img = container?.querySelector("img") ?? null;
-  const svg = container?.closest("svg") ?? null;
   const zoomInput = document.querySelector<HTMLInputElement>(
     `input[data-zoom="${uploadKey}"]`,
   );
-  if (!input || !container || !img || !svg) return null;
+  if (!input || !container || !img) return null;
 
   const target: Target = {
     key: uploadKey,
     state: { x: 0, y: 0, scale: 1, baseScale: 1 },
     img,
     container,
-    svg,
+    outputWidth,
+    outputHeight,
     input,
     zoomInput,
     blobUrl: null,
@@ -90,6 +96,7 @@ function setup(uploadKey: string, containerSelector: string): Target | null {
   zoomInput?.addEventListener("input", () => {
     setZoomMultiplier(target, Number(zoomInput.value));
   });
+  new ResizeObserver(() => apply(target)).observe(container);
   return target;
 }
 
@@ -167,9 +174,9 @@ function attachInteraction(t: Target): void {
       return;
     }
 
-    const factor = svgUnitsPerScreenPx(t.svg);
-    t.state.x += (event.clientX - previous.x) * factor;
-    t.state.y += (event.clientY - previous.y) * factor;
+    const factor = outputUnitsPerScreenPx(t);
+    t.state.x += (event.clientX - previous.x) * factor.x;
+    t.state.y += (event.clientY - previous.y) * factor.y;
     clampPosition(t);
     apply(t);
     event.preventDefault();
@@ -201,10 +208,9 @@ function screenPointToContainer(
   screenY: number,
 ): { x: number; y: number } {
   const rect = t.container.getBoundingClientRect();
-  const factor = svgUnitsPerScreenPx(t.svg);
   return {
-    x: (screenX - rect.left) * factor,
-    y: (screenY - rect.top) * factor,
+    x: ((screenX - rect.left) * t.outputWidth) / rect.width,
+    y: ((screenY - rect.top) * t.outputHeight) / rect.height,
   };
 }
 
@@ -218,8 +224,8 @@ function setScaleAroundCenter(t: Target, requestedScale: number): void {
   const oldScale = t.state.scale;
   const newScale = clampScale(t, requestedScale);
   if (newScale === oldScale) return;
-  const focusX = t.container.clientWidth / 2;
-  const focusY = t.container.clientHeight / 2;
+  const focusX = t.outputWidth / 2;
+  const focusY = t.outputHeight / 2;
   const imageX = (focusX - t.state.x) / oldScale;
   const imageY = (focusY - t.state.y) / oldScale;
   t.state.scale = newScale;
@@ -240,15 +246,17 @@ function updateZoomInput(t: Target): void {
   t.zoomInput.value = String(t.state.scale / t.state.baseScale);
 }
 
-function svgUnitsPerScreenPx(svg: SVGSVGElement): number {
-  const ctm = svg.getScreenCTM();
-  if (!ctm || !ctm.a) return 1;
-  return 1 / ctm.a;
+function outputUnitsPerScreenPx(t: Target): { x: number; y: number } {
+  const rect = t.container.getBoundingClientRect();
+  return {
+    x: rect.width ? t.outputWidth / rect.width : 1,
+    y: rect.height ? t.outputHeight / rect.height : 1,
+  };
 }
 
 function initialize(t: Target): void {
-  const cw = t.container.clientWidth;
-  const ch = t.container.clientHeight;
+  const cw = t.outputWidth;
+  const ch = t.outputHeight;
   const iw = t.img.naturalWidth;
   const ih = t.img.naturalHeight;
   if (!cw || !ch || !iw || !ih) return;
@@ -262,8 +270,8 @@ function initialize(t: Target): void {
 }
 
 function clampPosition(t: Target): void {
-  const cw = t.container.clientWidth;
-  const ch = t.container.clientHeight;
+  const cw = t.outputWidth;
+  const ch = t.outputHeight;
   const w = t.img.naturalWidth * t.state.scale;
   const h = t.img.naturalHeight * t.state.scale;
   if (w >= cw) {
@@ -279,7 +287,10 @@ function clampPosition(t: Target): void {
 }
 
 function apply(t: Target): void {
-  t.img.style.transform = `translate(${t.state.x}px, ${t.state.y}px) scale(${t.state.scale})`;
+  const rect = t.container.getBoundingClientRect();
+  if (!rect.width) return;
+  const visualScale = rect.width / t.outputWidth;
+  t.img.style.transform = `translate(${t.state.x * visualScale}px, ${t.state.y * visualScale}px) scale(${t.state.scale * visualScale})`;
 }
 
 async function download(btn: HTMLButtonElement): Promise<void> {
@@ -329,8 +340,8 @@ async function renderToBlob(
 }
 
 async function renderStatic(t: Target): Promise<Blob | null> {
-  const cw = t.container.clientWidth;
-  const ch = t.container.clientHeight;
+  const cw = t.outputWidth;
+  const ch = t.outputHeight;
   if (!cw || !ch) return null;
   const canvas = document.createElement("canvas");
   canvas.width = cw;
@@ -364,8 +375,8 @@ async function renderGif(t: Target, file: File): Promise<Blob> {
     willReadFrequently: true,
   }) as CanvasRenderingContext2D;
 
-  const cw = t.container.clientWidth;
-  const ch = t.container.clientHeight;
+  const cw = t.outputWidth;
+  const ch = t.outputHeight;
   const outCanvas = document.createElement("canvas");
   outCanvas.width = cw;
   outCanvas.height = ch;
