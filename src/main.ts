@@ -79,17 +79,16 @@ function setup(
   input.addEventListener("change", () => {
     const file = input.files?.[0];
     if (!file) return;
-    if (target.blobUrl) URL.revokeObjectURL(target.blobUrl);
-    const url = URL.createObjectURL(file);
-    target.blobUrl = url;
-    target.originalFile = file;
-    img.crossOrigin = "";
-    img.onload = () => {
-      initialize(target);
-      if (target.zoomInput) target.zoomInput.disabled = false;
-      updateDownloadEnabled();
-    };
-    img.src = url;
+    loadFile(target, file);
+  });
+
+  container.addEventListener("paste", (event) => {
+    const file = Array.from(event.clipboardData?.files ?? []).find((candidate) =>
+      candidate.type.startsWith("image/"),
+    );
+    if (!file) return;
+    event.preventDefault();
+    loadFile(target, file);
   });
 
   attachInteraction(target);
@@ -98,6 +97,20 @@ function setup(
   });
   new ResizeObserver(() => apply(target)).observe(container);
   return target;
+}
+
+function loadFile(target: Target, file: File): void {
+  if (target.blobUrl) URL.revokeObjectURL(target.blobUrl);
+  const url = URL.createObjectURL(file);
+  target.blobUrl = url;
+  target.originalFile = file;
+  target.img.crossOrigin = "";
+  target.img.onload = () => {
+    initialize(target);
+    if (target.zoomInput) target.zoomInput.disabled = false;
+    updateDownloadEnabled();
+  };
+  target.img.src = url;
 }
 
 function updateDownloadEnabled(): void {
@@ -139,6 +152,7 @@ function attachInteraction(t: Target): void {
 
   t.container.addEventListener("pointerdown", (event) => {
     if (pointers.size >= 2 && !pointers.has(event.pointerId)) return;
+    t.container.focus({ preventScroll: true });
     pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
     t.container.setPointerCapture(event.pointerId);
     if (pointers.size === 2) beginPinch();
