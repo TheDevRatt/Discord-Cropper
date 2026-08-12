@@ -168,6 +168,80 @@ test("mobile actions are stacked, full width, and touch sized", async (
   await expect(page.locator(".crop-help")).toContainText(/pinch/i);
 });
 
+test("pasting an image into a crop loads only that section", async ({ page }) => {
+  const pasteImage = (selector: string, name: string) =>
+    page.locator(selector).evaluate(
+      (element, payload) => {
+        const bytes = Uint8Array.from(atob(payload.base64), (char) =>
+          char.charCodeAt(0),
+        );
+        const transfer = new DataTransfer();
+        transfer.items.add(
+          new File([bytes], payload.name, { type: "image/png" }),
+        );
+        element.dispatchEvent(
+          new ClipboardEvent("paste", {
+            bubbles: true,
+            cancelable: true,
+            clipboardData: transfer,
+          }),
+        );
+      },
+      { name, base64: tinyPng.toString("base64") },
+    );
+
+  const avatarImage = page.locator(".profile-picture img");
+  const bannerImage = page.locator(".profile-banner img");
+  const initialAvatar = await avatarImage.getAttribute("src");
+  const initialBanner = await bannerImage.getAttribute("src");
+
+  await page.locator(".profile-picture").click();
+  await expect(page.locator(".profile-picture")).toBeFocused();
+  await pasteImage(":focus", "pasted-avatar.png");
+
+  await expect(avatarImage).toHaveAttribute("src", /^blob:/);
+  await expect(bannerImage).toHaveAttribute("src", initialBanner!);
+  await expect(page.locator('[data-action="download"]')).toBeEnabled();
+  await expect(page.locator('input[data-zoom="avatar"]')).toBeEnabled();
+  await expect(page.locator('input[data-zoom="banner"]')).toBeDisabled();
+  await expect(page.locator('input[data-upload="avatar"]')).toHaveJSProperty(
+    "files.length",
+    0,
+  );
+
+  await page.reload();
+  await page.locator(".profile-banner").click();
+  await expect(page.locator(".profile-banner")).toBeFocused();
+  await pasteImage(":focus", "pasted-banner.png");
+
+  await expect(page.locator(".profile-banner img")).toHaveAttribute("src", /^blob:/);
+  await expect(page.locator(".profile-picture img")).toHaveAttribute(
+    "src",
+    initialAvatar!,
+  );
+});
+
+test("non-image clipboard content leaves crops unchanged", async ({ page }) => {
+  const initialAvatar = await page.locator(".profile-picture img").getAttribute("src");
+  await page.locator(".profile-picture").evaluate((element) => {
+    const transfer = new DataTransfer();
+    transfer.setData("text/plain", "not an image");
+    element.dispatchEvent(
+      new ClipboardEvent("paste", {
+        bubbles: true,
+        cancelable: true,
+        clipboardData: transfer,
+      }),
+    );
+  });
+
+  await expect(page.locator(".profile-picture img")).toHaveAttribute(
+    "src",
+    initialAvatar!,
+  );
+  await expect(page.locator('[data-action="download"]')).toBeDisabled();
+});
+
 test("mobile zoom controls adjust each uploaded crop", async (
   { page },
   testInfo,

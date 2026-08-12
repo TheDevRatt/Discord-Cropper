@@ -350,6 +350,12 @@ main h1 {
   cursor: grabbing;
 }
 
+.profile-banner:focus-visible,
+.profile-picture:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: -3px;
+}
+
 .profile-banner img,
 .profile-picture img {
   position: absolute;
