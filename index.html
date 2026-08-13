@@ -5,8 +5,8 @@
     <link rel="icon" type="image/svg+xml" href="/Discord-Cropper/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Discord Cropper</title>
-    <script type="module" crossorigin src="/Discord-Cropper/assets/index-BBzKEQpb.js"></script>
-    <link rel="stylesheet" crossorigin href="/Discord-Cropper/assets/index-B6mVzupQ.css">
+    <script type="module" crossorigin src="/Discord-Cropper/assets/index-Z6oIQYJP.js"></script>
+    <link rel="stylesheet" crossorigin href="/Discord-Cropper/assets/index-Di-a1NA-.css">
   </head>
   <body>
     <main>
@@ -77,6 +77,18 @@
                 <span>Download ZIP</span>
               </button>
             </div>
+            <div class="flip-controls" aria-label="Image flip controls">
+              <div class="flip-control-group" aria-label="Profile picture flips">
+                <span>Profile picture</span>
+                <button type="button" class="transform-button" data-flip="horizontal" data-target="avatar" aria-label="Flip profile picture horizontally" aria-pressed="false" disabled>Flip horizontally</button>
+                <button type="button" class="transform-button" data-flip="vertical" data-target="avatar" aria-label="Flip profile picture vertically" aria-pressed="false" disabled>Flip vertically</button>
+              </div>
+              <div class="flip-control-group" aria-label="Banner flips">
+                <span>Banner</span>
+                <button type="button" class="transform-button" data-flip="horizontal" data-target="banner" aria-label="Flip banner horizontally" aria-pressed="false" disabled>Flip horizontally</button>
+                <button type="button" class="transform-button" data-flip="vertical" data-target="banner" aria-label="Flip banner vertically" aria-pressed="false" disabled>Flip vertically</button>
+              </div>
+            </div>
             <div class="mobile-crop-controls" aria-label="Touch crop controls">
               <label class="zoom-control">
                 <span>Profile picture zoom</span>
@@ -108,8 +120,9 @@
       </section>
       <p class="crop-help">
         Upload an image or select a crop and paste one from your clipboard, then
-        drag to reposition it. Pinch or use the mobile sliders to zoom on
-        touchscreens, or use the mouse wheel on desktop.
+        drag to reposition it. Use the flip buttons to mirror either crop. Pinch
+        or use the mobile sliders to zoom on touchscreens, or use the mouse wheel
+        on desktop.
       </p>
     </main>
 
