@@ -1,9 +1,24 @@
 import { expect, test, type Page } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 import JSZip from "jszip";
+import { decompressFrames, parseGIF } from "gifuct-js";
 
 const tinyPng = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAFElEQVR42mP8z8AARAwMjDAGsgAAH0QCBY0SMWQAAAAASUVORK5CYII=",
+  "base64",
+);
+
+const quadrantSvg = Buffer.from(`
+  <svg xmlns="http://www.w3.org/2000/svg" width="2" height="2">
+    <rect width="1" height="1" x="0" y="0" fill="#ff0000" />
+    <rect width="1" height="1" x="1" y="0" fill="#00ff00" />
+    <rect width="1" height="1" x="0" y="1" fill="#0000ff" />
+    <rect width="1" height="1" x="1" y="1" fill="#ffff00" />
+  </svg>
+`);
+
+const quadrantGif = Buffer.from(
+  "R0lGODlhAgACAPEAAP8AAAD/AAAA////ACH/C05FVFNDQVBFMi4wAwEAAAAh+QQACgAAACwAAAAAAgACAAAIBwABBBAwICAAIfkEAAoAAAAsAAAAAAIAAgCB/wAAAP8AAAD///8ACAcABwgIACAgADs=",
   "base64",
 );
 
@@ -385,6 +400,218 @@ test("non-image clipboard content leaves crops unchanged", async ({ page }) => {
   await expect(page.locator('[data-action="download"]')).toBeDisabled();
 });
 
+test("flip buttons affect only their matching crop and axis", async ({ page }) => {
+  const avatarHorizontal = page.locator(
+    'button[data-flip="horizontal"][data-target="avatar"]',
+  );
+  const avatarVertical = page.locator(
+    'button[data-flip="vertical"][data-target="avatar"]',
+  );
+  const bannerHorizontal = page.locator(
+    'button[data-flip="horizontal"][data-target="banner"]',
+  );
+
+  await expect(avatarHorizontal).toBeDisabled();
+  await expect(avatarVertical).toBeDisabled();
+  await expect(bannerHorizontal).toBeDisabled();
+  await expect(
+    page.getByRole("button", { name: "Flip profile picture horizontally" }),
+  ).toHaveCount(1);
+  await expect(
+    page.getByRole("button", { name: "Flip profile picture vertically" }),
+  ).toHaveCount(1);
+  await expect(
+    page.getByRole("button", { name: "Flip banner horizontally" }),
+  ).toHaveCount(1);
+  await expect(
+    page.getByRole("button", { name: "Flip banner vertically" }),
+  ).toHaveCount(1);
+  await upload(page, "avatar");
+  await expect(avatarHorizontal).toBeEnabled();
+  await expect(avatarVertical).toBeEnabled();
+  await expect(bannerHorizontal).toBeDisabled();
+
+  const avatarImage = page.locator(".profile-picture img");
+  const bannerImage = page.locator(".profile-banner img");
+  const initialBanner = await bannerImage.evaluate(
+    (element) => new DOMMatrix(getComputedStyle(element).transform),
+  );
+
+  await avatarHorizontal.click();
+  let avatarTransform = await avatarImage.evaluate(
+    (element) => new DOMMatrix(getComputedStyle(element).transform),
+  );
+  expect(avatarTransform.a).toBeLessThan(0);
+  expect(avatarTransform.d).toBeGreaterThan(0);
+  expect(avatarTransform.e).toBeGreaterThan(0);
+  await expect(avatarHorizontal).toHaveAttribute("aria-pressed", "true");
+
+  await avatarVertical.click();
+  avatarTransform = await avatarImage.evaluate(
+    (element) => new DOMMatrix(getComputedStyle(element).transform),
+  );
+  expect(avatarTransform.a).toBeLessThan(0);
+  expect(avatarTransform.d).toBeLessThan(0);
+  expect(avatarTransform.e).toBeGreaterThan(0);
+  expect(avatarTransform.f).toBeGreaterThan(0);
+  await expect(avatarVertical).toHaveAttribute("aria-pressed", "true");
+
+  await avatarHorizontal.click();
+  avatarTransform = await avatarImage.evaluate(
+    (element) => new DOMMatrix(getComputedStyle(element).transform),
+  );
+  expect(avatarTransform.a).toBeGreaterThan(0);
+  expect(avatarTransform.d).toBeLessThan(0);
+  await expect(avatarHorizontal).toHaveAttribute("aria-pressed", "false");
+
+  const finalBanner = await bannerImage.evaluate(
+    (element) => new DOMMatrix(getComputedStyle(element).transform),
+  );
+  expect(finalBanner.toString()).toBe(initialBanner.toString());
+
+  await upload(page, "avatar");
+  await expect(avatarHorizontal).toHaveAttribute("aria-pressed", "false");
+  await expect(avatarVertical).toHaveAttribute("aria-pressed", "false");
+});
+
+test("zoom and drag stay centered after flipping", async ({ page }, testInfo) => {
+  test.skip(!testInfo.project.name.startsWith("desktop"));
+
+  await upload(page, "avatar");
+  const crop = page.locator(".profile-picture");
+  const image = crop.locator("img");
+  await page
+    .locator('button[data-flip="horizontal"][data-target="avatar"]')
+    .click();
+
+  const before = await image.evaluate(
+    (element) => new DOMMatrix(getComputedStyle(element).transform),
+  );
+  await crop.hover();
+  await page.mouse.wheel(0, -500);
+  const zoomed = await image.evaluate(
+    (element) => new DOMMatrix(getComputedStyle(element).transform),
+  );
+  expect(zoomed.a).toBeLessThan(before.a);
+
+  const box = await crop.boundingBox();
+  expect(box).not.toBeNull();
+  const centerX = box!.x + box!.width / 2;
+  const centerY = box!.y + box!.height / 2;
+  await page.mouse.move(centerX, centerY);
+  await page.mouse.down();
+  await page.mouse.move(centerX + 30, centerY + 15);
+  await page.mouse.up();
+  const dragged = await image.evaluate(
+    (element) => new DOMMatrix(getComputedStyle(element).transform),
+  );
+  expect(dragged.e).toBeGreaterThan(zoomed.e + 20);
+  expect(dragged.f).toBeGreaterThan(zoomed.f + 10);
+});
+
+test("downloaded PNG preserves horizontal and vertical flips", async ({ page }) => {
+  await page.locator('input[data-upload="avatar"]').setInputFiles({
+    name: "quadrants.svg",
+    mimeType: "image/svg+xml",
+    buffer: quadrantSvg,
+  });
+  await page
+    .locator('button[data-flip="horizontal"][data-target="avatar"]')
+    .click();
+  await page
+    .locator('button[data-flip="vertical"][data-target="avatar"]')
+    .click();
+
+  const pendingDownload = page.waitForEvent("download");
+  await page.locator('[data-action="download"]').click();
+  const download = await pendingDownload;
+  const path = await download.path();
+  expect(path).not.toBeNull();
+
+  const zip = await JSZip.loadAsync(await readFile(path!));
+  const bytes = await zip.file("avatar.png")!.async("uint8array");
+  const corners = await page.evaluate(async (values) => {
+    const image = await createImageBitmap(
+      new Blob([Uint8Array.from(values)], { type: "image/png" }),
+    );
+    const canvas = document.createElement("canvas");
+    canvas.width = image.width;
+    canvas.height = image.height;
+    const context = canvas.getContext("2d")!;
+    context.drawImage(image, 0, 0);
+    const sample = (x: number, y: number) =>
+      Array.from(context.getImageData(x, y, 1, 1).data.slice(0, 3));
+    return {
+      topLeft: sample(8, 8),
+      topRight: sample(image.width - 9, 8),
+      bottomLeft: sample(8, image.height - 9),
+      bottomRight: sample(image.width - 9, image.height - 9),
+    };
+  }, Array.from(bytes));
+
+  expect(corners).toEqual({
+    topLeft: [255, 255, 0],
+    topRight: [0, 0, 255],
+    bottomLeft: [0, 255, 0],
+    bottomRight: [255, 0, 0],
+  });
+});
+
+test("animated GIF exports preserve flips on every frame", async ({ page }) => {
+  await page.locator('input[data-upload="avatar"]').setInputFiles({
+    name: "quadrants.gif",
+    mimeType: "image/gif",
+    buffer: quadrantGif,
+  });
+  await page
+    .locator('button[data-flip="horizontal"][data-target="avatar"]')
+    .click();
+  await page
+    .locator('button[data-flip="vertical"][data-target="avatar"]')
+    .click();
+
+  const pendingDownload = page.waitForEvent("download");
+  await page.locator('[data-action="download"]').click();
+  const download = await pendingDownload;
+  const path = await download.path();
+  expect(path).not.toBeNull();
+
+  const zip = await JSZip.loadAsync(await readFile(path!));
+  const output = await zip.file("avatar.gif")!.async("uint8array");
+  const parsed = parseGIF(
+    output.buffer.slice(
+      output.byteOffset,
+      output.byteOffset + output.byteLength,
+    ) as ArrayBuffer,
+  );
+  const frames = decompressFrames(parsed, true);
+  expect(frames).toHaveLength(2);
+  expect([parsed.lsd.width, parsed.lsd.height]).toEqual([512, 512]);
+
+  const rgb = (frame: (typeof frames)[number], x: number, y: number) => {
+    const index = (y * frame.dims.width + x) * 4;
+    return Array.from(frame.patch.slice(index, index + 3));
+  };
+  const corners = (frame: (typeof frames)[number]) => ({
+    topLeft: rgb(frame, 8, 8),
+    topRight: rgb(frame, frame.dims.width - 9, 8),
+    bottomLeft: rgb(frame, 8, frame.dims.height - 9),
+    bottomRight: rgb(frame, frame.dims.width - 9, frame.dims.height - 9),
+  });
+  expect(corners(frames[0])).toEqual({
+    topLeft: [255, 255, 0],
+    topRight: [0, 0, 255],
+    bottomLeft: [2, 255, 0],
+    bottomRight: [255, 0, 0],
+  });
+  expect(corners(frames[1])).toEqual({
+    topLeft: [255, 0, 0],
+    topRight: [2, 255, 0],
+    bottomLeft: [0, 0, 255],
+    bottomRight: [255, 255, 0],
+  });
+});
+
 test("mobile zoom controls adjust each uploaded crop", async (
   { page },
   testInfo,
@@ -400,6 +627,9 @@ test("mobile zoom controls adjust each uploaded crop", async (
 
     await upload(page, target);
     await expect(control).toBeEnabled();
+    await page
+      .locator(`button[data-flip="horizontal"][data-target="${target}"]`)
+      .click();
 
     const image = page.locator(
       target === "avatar" ? ".profile-picture img" : ".profile-banner img",
@@ -411,7 +641,7 @@ test("mobile zoom controls adjust each uploaded crop", async (
     const after = await image.evaluate(
       (element) => new DOMMatrix(getComputedStyle(element).transform).a,
     );
-    expect(after).toBeGreaterThan(before * 1.9);
+    expect(Math.abs(after)).toBeGreaterThan(Math.abs(before) * 1.9);
   }
 });
 

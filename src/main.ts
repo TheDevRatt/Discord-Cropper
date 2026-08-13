@@ -8,6 +8,8 @@ interface State {
   y: number;
   scale: number;
   baseScale: number;
+  flipX: boolean;
+  flipY: boolean;
 }
 
 interface Target {
@@ -19,6 +21,7 @@ interface Target {
   outputHeight: number;
   input: HTMLInputElement;
   zoomInput: HTMLInputElement | null;
+  flipButtons: HTMLButtonElement[];
   blobUrl: string | null;
   originalFile: File | null;
 }
@@ -76,17 +79,30 @@ function setup(
   const zoomInput = document.querySelector<HTMLInputElement>(
     `input[data-zoom="${uploadKey}"]`,
   );
+  const flipButtons = Array.from(
+    document.querySelectorAll<HTMLButtonElement>(
+      `button[data-flip][data-target="${uploadKey}"]`,
+    ),
+  );
   if (!input || !container || !img) return null;
 
   const target: Target = {
     key: uploadKey,
-    state: { x: 0, y: 0, scale: 1, baseScale: 1 },
+    state: {
+      x: 0,
+      y: 0,
+      scale: 1,
+      baseScale: 1,
+      flipX: false,
+      flipY: false,
+    },
     img,
     container,
     outputWidth,
     outputHeight,
     input,
     zoomInput,
+    flipButtons,
     blobUrl: null,
     originalFile: null,
   };
@@ -108,6 +124,15 @@ function setup(
   zoomInput?.addEventListener("input", () => {
     setZoomMultiplier(target, Number(zoomInput.value));
   });
+  for (const button of flipButtons) {
+    button.addEventListener("click", () => {
+      const axis = button.dataset.flip;
+      if (axis === "horizontal") target.state.flipX = !target.state.flipX;
+      else if (axis === "vertical") target.state.flipY = !target.state.flipY;
+      updateFlipButtons(target);
+      apply(target);
+    });
+  }
   new ResizeObserver(() => apply(target)).observe(container);
   return target;
 }
@@ -117,13 +142,27 @@ function loadFile(target: Target, file: File): void {
   const url = URL.createObjectURL(file);
   target.blobUrl = url;
   target.originalFile = file;
+  target.state.flipX = false;
+  target.state.flipY = false;
+  updateFlipButtons(target);
   target.img.crossOrigin = "";
   target.img.onload = () => {
     initialize(target);
     if (target.zoomInput) target.zoomInput.disabled = false;
+    for (const button of target.flipButtons) button.disabled = false;
     updateDownloadEnabled();
   };
   target.img.src = url;
+}
+
+function updateFlipButtons(target: Target): void {
+  for (const button of target.flipButtons) {
+    const pressed =
+      button.dataset.flip === "horizontal"
+        ? target.state.flipX
+        : target.state.flipY;
+    button.setAttribute("aria-pressed", String(pressed));
+  }
 }
 
 function updateDownloadEnabled(): void {
@@ -317,7 +356,30 @@ function apply(t: Target): void {
   const rect = t.container.getBoundingClientRect();
   if (!rect.width) return;
   const visualScale = rect.width / t.outputWidth;
-  t.img.style.transform = `translate(${t.state.x * visualScale}px, ${t.state.y * visualScale}px) scale(${t.state.scale * visualScale})`;
+  const scaleX = t.state.scale * visualScale * (t.state.flipX ? -1 : 1);
+  const scaleY = t.state.scale * visualScale * (t.state.flipY ? -1 : 1);
+  const translateX =
+    (t.state.x + (t.state.flipX ? t.img.naturalWidth * t.state.scale : 0)) *
+    visualScale;
+  const translateY =
+    (t.state.y + (t.state.flipY ? t.img.naturalHeight * t.state.scale : 0)) *
+    visualScale;
+  t.img.style.transform = `matrix(${scaleX}, 0, 0, ${scaleY}, ${translateX}, ${translateY})`;
+}
+
+function applyCanvasTransform(
+  context: CanvasRenderingContext2D,
+  target: Target,
+): void {
+  const scaleX = target.state.scale * (target.state.flipX ? -1 : 1);
+  const scaleY = target.state.scale * (target.state.flipY ? -1 : 1);
+  const translateX =
+    target.state.x +
+    (target.state.flipX ? target.img.naturalWidth * target.state.scale : 0);
+  const translateY =
+    target.state.y +
+    (target.state.flipY ? target.img.naturalHeight * target.state.scale : 0);
+  context.setTransform(scaleX, 0, 0, scaleY, translateX, translateY);
 }
 
 async function download(btn: HTMLButtonElement): Promise<void> {
@@ -377,8 +439,7 @@ async function renderStatic(t: Target): Promise<Blob | null> {
   if (!ctx) return null;
   ctx.imageSmoothingQuality = "high";
   ctx.save();
-  ctx.translate(t.state.x, t.state.y);
-  ctx.scale(t.state.scale, t.state.scale);
+  applyCanvasTransform(ctx, t);
   ctx.drawImage(t.img, 0, 0);
   ctx.restore();
   return new Promise((resolve) =>
@@ -454,8 +515,7 @@ async function renderGif(t: Target, file: File): Promise<Blob> {
 
     outCtx.clearRect(0, 0, cw, ch);
     outCtx.save();
-    outCtx.translate(t.state.x, t.state.y);
-    outCtx.scale(t.state.scale, t.state.scale);
+    applyCanvasTransform(outCtx, t);
     outCtx.drawImage(srcCanvas, 0, 0);
     outCtx.restore();
 
